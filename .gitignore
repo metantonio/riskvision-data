@@ -2,3 +2,4 @@ bank_data.db
 *.db
 
 __pycache__
+export_to_snowflake.py

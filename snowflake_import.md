@@ -43,6 +43,7 @@ sf_conn = connect(
     user='<YOUR_USER>',
     password='<YOUR_PASSWORD>',
     account='<YOUR_ACCOUNT_IDENTIFIER>',  # e.g., 'xy12345.us-east-2' or 'org-account'
+    role="PUBLIC",
     warehouse='<YOUR_WAREHOUSE>',          # e.g., 'COMPUTE_WH'
     database='<YOUR_DATABASE>',            # e.g., 'RISKVISION_DB'
     schema='<YOUR_SCHEMA>'                 # e.g., 'PUBLIC'
