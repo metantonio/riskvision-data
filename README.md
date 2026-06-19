@@ -13,6 +13,9 @@
 
 RiskVision is a synthetic data environment and interactive visualizer designed for data scientists and risk analysts. It simulates 3 years of daily operations for a commercial bank in Venezuela (10,000 clients, ~3 million transactions) to build and train machine learning models for Credit, Operational, and Liquidity Risk.
 
+> [!TIP]
+> **Data Science & ML Modeling**: Refer to the [Risk Analysis & ML Modeling Guide](risk_analysis_guide.md) for detailed explanations on interpreting variables and setting up Scikit-Learn pipelines.
+
 ---
 
 ## 1. How to Initialize the Database
@@ -93,6 +96,9 @@ To build realistic risk models, the simulation incorporates the unique macroecon
 # VERSIÓN EN ESPAÑOL
 
 RiskVision es un entorno de datos sintéticos y visualizador interactivo diseñado para científicos y analistas de datos. Simula 3 años de operaciones diarias de un banco comercial en Venezuela (10,000 clientes, ~3 millones de transacciones) para construir y entrenar modelos de Machine Learning en Riesgo de Crédito, Operativo y Liquidez.
+
+> [!TIP]
+> **Ciencia de Datos y Modelado de ML**: Consulta la [Guía de Análisis de Riesgos y Modelado de ML](risk_analysis_guide.md) para ver explicaciones detalladas sobre la interpretación de variables y la construcción de pipelines en Scikit-Learn.
 
 ---
 
