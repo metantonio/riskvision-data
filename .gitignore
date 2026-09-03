@@ -3,4 +3,3 @@ bank_data.db
 
 __pycache__
 export_to_snowflake.py
-*.joblib
