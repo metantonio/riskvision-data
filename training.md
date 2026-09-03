@@ -3,7 +3,7 @@
 
 This document provides a comprehensive guide in both **English** and **Spanish** on how to train, evaluate, and deploy the machine learning models required to answer the advanced questions in [`questions.md`](./questions.md).
 
-Este documento proporciona una guía exhaustiva tanto en **inglés** como en **español** sobre cómo entrenar, evaluar y desplegar los modelos de machine learning requeridos para resolver las preguntas avanzadas de [`questions.md`](.questions.md).
+Este documento proporciona una guía exhaustiva tanto en **inglés** como en **español** sobre cómo entrenar, evaluar y desplegar los modelos de machine learning requeridos para resolver las preguntas avanzadas de [`questions.md`](./questions.md).
 
 ---
 
