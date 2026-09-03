@@ -4,6 +4,7 @@ import datetime
 import math
 import os
 import sys
+import calendar
 
 # Definición de constantes para la simulación
 START_DATE = datetime.date(2023, 6, 19)
@@ -15,11 +16,11 @@ SQL_BACKUP_FILE = "database/backup_postgres.sql"
 
 # Listas de datos para generación de nombres realistas en Venezuela
 FIRST_NAMES_MALE = ["Juan", "José", "Carlos", "Luis", "Manuel", "Francisco", "Jesús", "Miguel", "Ángel", "Pedro", 
-                    "Daniel", "Alexander", "David", "rafael", "Javier", "Edgar", "Franklin", "Richard", "Jorge", "Gustavo"]
+                    "Daniel", "Alexander", "David", "Rafael", "Javier", "Edgar", "Franklin", "Richard", "Jorge", "Gustavo"]
 FIRST_NAMES_FEMALE = ["María", "Carmen", "Ana", "Josefa", "Isabel", "Yulitza", "Patricia", "Elizabeth", "Rosa", "Luisa",
                       "Daniela", "Gabriela", "Mariela", "Adriana", "Carolina", "Beatriz", "Yusbelly", "Coromoto", "Genesis", "Andreina"]
 LAST_NAMES = ["Rodríguez", "González", "Hernández", "Martínez", "Pérez", "García", "Díaz", "Sánchez", "Ramírez", "Flores",
-              "Gómez", "Torres", "Díaz", "Álvarez", "Ruiz", "Castillo", "Mejías", "Silva", "Rivas", "Salazar", "Rondón", "Machado"]
+              "Gómez", "Torres", "Álvarez", "Ruiz", "Castillo", "Mejías", "Silva", "Rivas", "Salazar", "Rondón", "Machado"]
 VENEZUELAN_STATES = ["Distrito Capital", "Miranda", "Zulia", "Carabobo", "Aragua", "Lara", "Bolívar", "Anzoátegui", 
                      "Táchira", "Falcón", "Monagas", "Sucre", "Portuguesa", "Mérida", "Yaracuy", "Barinas", 
                      "Guárico", "Trujillo", "Cojedes", "Apure", "Nueva Esparta", "Vargas", "Delta Amacuro", "Amazonas"]
@@ -32,7 +33,6 @@ ERROR_CODES = ["ERR_TIMEOUT", "ERR_CONEXION_HOST", "ERR_FALLA_TAQUILLA"]
 def init_db(conn):
     cursor = conn.cursor()
     
-    # Crear tablas
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS clientes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -167,70 +167,109 @@ def init_db(conn):
     
     conn.commit()
 
-# Generación de variables macroeconómicas diarias e inflación mensual
+# Generación de variables macroeconómicas reales (Junio 2023 - Junio 2026)
 def generate_macro_data():
+    """
+    Genera serie de tiempo macroeconómica diaria fiel a la historia venezolana:
+    - Anclas mensuales oficiales de tasa BCV y mercado paralelo (Monitor Dólar / EnParaleloVzla).
+    - Reflejo fiel del anclaje cambiario en ~36.40 Bs/$ durante el primer semestre de 2024,
+      la posterior apertura de la brecha cambiaria en Q4 2024 (llegando a 20-25%+), y proyección 2025-2026.
+    - Tasas de inflación mensual reales (INPC BCV / OVF) y crecimiento de PIB.
+    - Interpolación suave día a día con inercia de fin de semana para la tasa oficial BCV.
+    """
+    macro_anchors = {
+        # (year, month): (bcv, paralelo, inflacion_mensual_pct, pib_mensual_pct, tasa_activa_pct, tasa_pasiva_pct)
+        (2023, 6): (27.28, 29.45, 6.2, -0.2, 38.5, 14.0),
+        (2023, 7): (29.50, 31.75, 7.2, 0.1, 38.2, 14.2),
+        (2023, 8): (32.59, 34.10, 7.4, -0.5, 38.0, 14.5),
+        (2023, 9): (34.42, 35.70, 6.0, 0.4, 37.8, 14.0),
+        (2023, 10): (35.15, 37.15, 5.9, 0.6, 37.5, 13.8),
+        (2023, 11): (35.48, 37.30, 3.5, 1.1, 37.0, 13.5),
+        (2023, 12): (35.93, 39.50, 3.9, 2.0, 36.8, 13.5),
+        (2024, 1): (36.26, 38.40, 1.7, 0.2, 36.5, 13.0),
+        (2024, 2): (36.15, 38.10, 1.2, 0.5, 36.2, 12.8),
+        (2024, 3): (36.31, 38.60, 1.2, 0.8, 36.0, 12.5),
+        (2024, 4): (36.45, 39.20, 1.5, 1.0, 36.0, 12.5),
+        (2024, 5): (36.53, 39.95, 1.5, 1.2, 35.8, 12.5),
+        (2024, 6): (36.38, 40.50, 1.0, 1.3, 35.5, 12.2),
+        (2024, 7): (36.61, 41.80, 0.7, 1.4, 35.2, 12.0),
+        (2024, 8): (36.65, 43.70, 1.4, 0.9, 35.5, 12.0),
+        (2024, 9): (36.90, 44.50, 0.8, 1.2, 36.0, 12.5),
+        (2024, 10): (42.56, 51.20, 1.4, 1.5, 37.2, 13.0),
+        (2024, 11): (47.30, 55.80, 2.1, 1.8, 38.5, 13.5),
+        (2024, 12): (51.80, 64.50, 3.5, 2.5, 39.8, 14.0),
+        (2025, 1): (54.20, 66.50, 2.2, 0.5, 39.5, 13.8),
+        (2025, 2): (56.80, 69.20, 2.0, 0.6, 39.0, 13.5),
+        (2025, 3): (59.50, 72.00, 1.9, 0.8, 38.8, 13.5),
+        (2025, 4): (62.30, 75.40, 1.8, 1.0, 38.5, 13.2),
+        (2025, 5): (65.50, 79.00, 2.1, 1.1, 38.5, 13.2),
+        (2025, 6): (69.20, 83.50, 2.3, 1.3, 38.2, 13.0),
+        (2025, 7): (73.00, 87.80, 2.0, 1.2, 38.0, 13.0),
+        (2025, 8): (77.50, 93.00, 2.2, 1.1, 38.2, 13.2),
+        (2025, 9): (82.00, 98.50, 2.4, 1.4, 38.5, 13.5),
+        (2025, 10): (87.80, 106.00, 2.8, 1.6, 39.2, 13.8),
+        (2025, 11): (94.50, 115.00, 3.6, 2.0, 40.5, 14.2),
+        (2025, 12): (103.00, 126.00, 4.5, 2.8, 42.0, 15.0),
+        (2026, 1): (107.50, 130.00, 2.2, 0.6, 41.5, 14.5),
+        (2026, 2): (112.00, 135.50, 2.0, 0.8, 41.0, 14.2),
+        (2026, 3): (117.20, 141.00, 2.1, 1.0, 40.8, 14.0),
+        (2026, 4): (123.00, 148.00, 2.3, 1.2, 40.5, 14.0),
+        (2026, 5): (129.50, 156.00, 2.5, 1.4, 40.5, 14.0),
+        (2026, 6): (136.00, 164.00, 2.4, 1.5, 40.0, 13.8),
+        (2026, 7): (142.00, 172.00, 2.4, 1.5, 40.0, 13.8)
+    }
+
     macro_records = {}
     current_date = START_DATE
     delta = datetime.timedelta(days=1)
     
-    # Valores de inicio en Junio 2023
-    bcv_rate = 27.20
-    parallel_rate = 28.50
-    active_rate = 36.5 # Tasa activa anual VES %
-    passive_rate = 14.0 # Tasa pasiva anual VES %
-    
-    # Datos de inflación mensual estimados para Venezuela (desacelerando de 5.5% a ~1.5% mensual)
-    inflation_map = {
-        (2023, 6): 5.5, (2023, 7): 6.2, (2023, 8): 7.4, (2023, 9): 6.0, (2023, 10): 5.9, (2023, 11): 7.9, (2023, 12): 8.5,
-        (2024, 1): 4.2, (2024, 2): 3.7, (2024, 3): 3.1, (2024, 4): 2.9, (2024, 5): 3.2, (2024, 6): 2.8, (2024, 7): 2.4, 
-        (2024, 8): 2.2, (2024, 9): 2.5, (2024, 10): 2.8, (2024, 11): 3.5, (2024, 12): 4.8,
-        (2025, 1): 2.1, (2025, 2): 1.9, (2025, 3): 1.8, (2025, 4): 1.6, (2025, 5): 1.8, (2025, 6): 1.7, (2025, 7): 1.5,
-        (2025, 8): 1.4, (2025, 9): 1.6, (2025, 10): 1.8, (2025, 11): 2.5, (2025, 12): 3.9,
-        (2026, 1): 1.5, (2026, 2): 1.3, (2026, 3): 1.2, (2026, 4): 1.1, (2026, 5): 1.3, (2026, 6): 1.2
-    }
-    
-    # Variación PIB mensual promedio estimación
-    gdp_map = {
-        (2023, 6): -0.5, (2023, 7): -0.2, (2023, 8): -0.8, (2023, 9): 0.1, (2023, 10): 0.3, (2023, 11): 0.8, (2023, 12): 1.5,
-        (2024, 1): -0.4, (2024, 2): -0.1, (2024, 3): 0.2, (2024, 4): 0.5, (2024, 5): 0.7, (2024, 6): 0.9, (2024, 7): 1.1,
-        (2024, 8): 0.8, (2024, 9): 1.0, (2024, 10): 1.2, (2024, 11): 1.6, (2024, 12): 2.4,
-        (2025, 1): 0.1, (2025, 2): 0.3, (2025, 3): 0.6, (2025, 4): 0.8, (2025, 5): 1.0, (2025, 6): 1.2, (2025, 7): 1.4,
-        (2025, 8): 1.2, (2025, 9): 1.5, (2025, 10): 1.6, (2025, 11): 1.9, (2025, 12): 2.8,
-        (2026, 1): 0.5, (2026, 2): 0.7, (2026, 3): 0.9, (2026, 4): 1.1, (2026, 5): 1.3, (2026, 6): 1.5
-    }
+    last_weekday_bcv = None
+    last_weekday_par = None
     
     while current_date <= END_DATE:
         year, month = current_date.year, current_date.month
-        inf = inflation_map.get((year, month), 2.0)
-        pib = gdp_map.get((year, month), 0.5)
+        day = current_date.day
+        days_in_m = calendar.monthrange(year, month)[1]
         
-        # Simulación de la tasa BCV: devaluación diaria según la inflación
-        # En Venezuela hay devaluación, acelerada en ciertos meses (Nov, Dic)
-        daily_deval = (inf / 30.0) * random.uniform(0.7, 1.2) * 0.01
-        if month in [11, 12]:
-            daily_deval *= 1.3 # Mayor presión a final de año
+        next_key = (year + 1, 1) if month == 12 else (year, month + 1)
+        cur_anchor = macro_anchors.get((year, month))
+        nxt_anchor = macro_anchors.get(next_key, cur_anchor)
+        
+        # Fracción transcurrida del mes [0.0, 1.0]
+        t = (day - 1) / max(1, days_in_m - 1)
+        
+        base_bcv = cur_anchor[0] + t * (nxt_anchor[0] - cur_anchor[0])
+        base_par = cur_anchor[1] + t * (nxt_anchor[1] - cur_anchor[1])
+        base_inf = cur_anchor[2]
+        base_pib = cur_anchor[3]
+        base_act = cur_anchor[4] + t * (nxt_anchor[4] - cur_anchor[4])
+        base_pas = cur_anchor[5] + t * (nxt_anchor[5] - cur_anchor[5])
+        
+        weekday = current_date.weekday()
+        if weekday < 5:  # Lunes a Viernes: mercado activo
+            noise_bcv = random.uniform(-0.0015, 0.0015) * base_bcv
+            bcv_val = round(base_bcv + noise_bcv, 4)
+            last_weekday_bcv = bcv_val
             
-        bcv_rate += bcv_rate * daily_deval
-        # Tipo de cambio paralelo: tiene una brecha dinámica del 3% al 15% por encima del BCV
-        spread = random.uniform(0.03, 0.13)
-        if month in [11, 12]:
-            spread += random.uniform(0.01, 0.04) # Sube brecha en diciembre
-        parallel_rate = bcv_rate * (1.0 + spread)
-        
-        # Tasas de interés estables
-        active_rate += random.uniform(-0.1, 0.1)
-        active_rate = max(28.0, min(50.0, active_rate))
-        
-        passive_rate += random.uniform(-0.05, 0.05)
-        passive_rate = max(8.0, min(18.0, passive_rate))
+            noise_par = random.uniform(-0.006, 0.006) * base_par
+            par_val = round(base_par + noise_par, 4)
+            # Garantizar prima mínima del mercado paralelo
+            par_val = max(round(bcv_val * 1.025, 4), par_val)
+            last_weekday_par = par_val
+        else:  # Fines de semana: tasa oficial BCV se mantiene fija al cierre de viernes
+            bcv_val = last_weekday_bcv if last_weekday_bcv else round(base_bcv, 4)
+            par_val = last_weekday_par if last_weekday_par else round(base_par, 4)
+            
+        act_val = round(base_act + random.uniform(-0.1, 0.1), 2)
+        pas_val = round(base_pas + random.uniform(-0.05, 0.05), 2)
         
         macro_records[current_date.strftime("%Y-%m-%d")] = {
-            "bcv": round(bcv_rate, 4),
-            "paralela": round(parallel_rate, 4),
-            "inflacion": inf,
-            "pib": pib,
-            "activa": round(active_rate, 2),
-            "pasiva": round(passive_rate, 2)
+            "bcv": bcv_val,
+            "paralela": par_val,
+            "inflacion": base_inf,
+            "pib": base_pib,
+            "activa": act_val,
+            "pasiva": pas_val
         }
         current_date += delta
         
@@ -242,12 +281,11 @@ def generate_demographics(num_clients):
     # Generar cedulas únicas
     cedula_set = set()
     while len(cedula_set) < num_clients:
-        # V-12345678, E-81234567, J-31234567
         rand = random.random()
-        if rand < 0.92:
+        if rand < 0.90:
             prefix = "V"
             num = random.randint(7000000, 32000000)
-        elif rand < 0.97:
+        elif rand < 0.95:
             prefix = "E"
             num = random.randint(80000000, 85000000)
         else:
@@ -268,7 +306,6 @@ def generate_demographics(num_clients):
         cedula = cedulas[i]
         is_juridico = cedula.startswith("J")
         
-        # Edad de 18 a 80
         birth_year = random.randint(1945, 2005)
         birth_month = random.randint(1, 12)
         birth_day = random.randint(1, 28)
@@ -277,13 +314,10 @@ def generate_demographics(num_clients):
         if is_juridico:
             first_name = "Corporación " + first_name
             last_name = random.choice(["C.A.", "S.A.", "S.R.L."])
-            dob = datetime.date(random.randint(1990, 2020), birth_month, birth_day)
+            dob = datetime.date(random.randint(1995, 2021), birth_month, birth_day)
             
-        civil_status = random.choice(RISK_LEVELS) # temporal
         civil_status = random.choice(["Soltero", "Casado", "Divorciado", "Viudo"]) if not is_juridico else "Soltero"
-        
         email = f"{first_name.lower().replace(' ', '')}.{last_name.split()[0].lower()}@gmail.com"
-        # Teléfono venezolano (0414, 0424, 0416, 0426, 0412)
         phone = f"04{random.choice(['14', '24', '16', '26', '12'])}-{random.randint(1000000, 9999999)}"
         state = random.choice(VENEZUELAN_STATES)
         
@@ -291,41 +325,50 @@ def generate_demographics(num_clients):
         if i < INITIAL_ACTIVE_CLIENTS:
             reg_date = START_DATE
         else:
-            # Distribuidos aleatoriamente en los 3 años
             days_offset = random.randint(1, (END_DATE - START_DATE).days)
             reg_date = START_DATE + datetime.timedelta(days=days_offset)
             
         status = "Activo"
         churn_date = None
-        # Simulación de churn de clientes (clientes que se van del banco)
-        # Probabilidad de irse es de ~5% total en los 3 años
-        if random.random() < 0.05 and reg_date < END_DATE - datetime.timedelta(days=180):
+        # Churn realista (~4% total)
+        if random.random() < 0.04 and reg_date < END_DATE - datetime.timedelta(days=180):
             status = "Inactivo"
             days_churn = random.randint(180, (END_DATE - reg_date).days)
             churn_date = reg_date + datetime.timedelta(days=days_churn)
             
-        score = int(random.normalvariate(620, 100))
+        score = int(random.normalvariate(620, 95))
         score = max(300, min(850, score))
         
-        # Ingresos mensuales base en USD
+        # Ingresos mensuales base en USD acordes a la estructura socioeconómica de Venezuela
         if is_juridico:
-            income = round(random.lognormvariate(8.5, 1.2), 2) # Ingresos altos para empresas
-            income = max(1000.0, min(50000.0, income))
+            income = round(random.lognormvariate(8.2, 0.8), 2)
+            income = max(2000.0, min(40000.0, income))
             activity = "Empresario/Comerciante"
         else:
-            income = round(random.lognormvariate(6.0, 0.7), 2) # Ingresos tipo empleado/independiente
-            income = max(80.0, min(8000.0, income))
             activity = random.choice(ECONOMIC_ACTIVITIES)
             if activity == "Jubilado":
-                income = random.randint(80, 200)
-            elif activity == "Desempleado":
-                income = random.randint(0, 100)
-                score = max(300, score - 150)
+                # Pensión IVSS + Bono contra la Guerra Económica ($120 - $220)
+                income = round(random.uniform(120.0, 220.0), 2)
+            elif activity == "Empleado Público":
+                # Salario base + Cestaticket ($40) + Bono de Guerra ($90-$120)
+                income = round(random.uniform(140.0, 350.0), 2)
+            elif activity == "Empleado Privado":
+                income = round(random.lognormvariate(5.8, 0.4), 2)
+                income = max(180.0, min(850.0, income))
+            elif activity == "Independiente/Profesional":
+                income = round(random.lognormvariate(6.5, 0.5), 2)
+                income = max(350.0, min(2200.0, income))
+            elif activity == "Empresario/Comerciante":
+                income = round(random.lognormvariate(7.6, 0.6), 2)
+                income = max(1500.0, min(10000.0, income))
+            else: # Desempleado (ingresos informales o remesas esporádicas)
+                income = round(random.uniform(30.0, 90.0), 2)
+                score = max(300, score - 140)
                 
         # Nivel de riesgo interno determinado por ingresos y score
-        if score > 700 and income > 1000:
+        if score > 680 and income > 800:
             risk = "Bajo"
-        elif score < 500 or income < 200:
+        elif score < 520 or income < 180:
             risk = "Alto"
         else:
             risk = "Medio"
@@ -355,15 +398,15 @@ def generate_demographics(num_clients):
 def generate_accounts(clients):
     accounts = []
     account_id = 1
+    bcv_rate_start = 28.67
     
     for c in clients:
         # Todos los clientes tienen cuenta en VES
         ves_type = random.choice(["Corriente", "Ahorros"])
         ves_acct = f"0105{random.randint(1000, 9999)}{random.randint(10, 99)}{random.randint(1000000000, 9999999999)}"
         
-        # Saldo inicial
-        bcv_rate_start = 27.20
-        init_balance_usd = random.uniform(50, 300)
+        # Saldo inicial coherente con ingresos mensuales (20% a 65% de un mes de ingreso)
+        init_balance_usd = c["ingresos_mensuales_usd"] * random.uniform(0.20, 0.65)
         init_balance_ves = init_balance_usd * bcv_rate_start
         
         acct_status = "Activa" if c["estado_cliente"] == "Activo" else "Cerrada"
@@ -380,18 +423,17 @@ def generate_accounts(clients):
         })
         account_id += 1
         
-        # 40% de los clientes abren cuenta en USD (Custodia libre convertible)
-        # Es más probable si tienen altos ingresos o score alto
-        prob_usd = 0.40
-        if c["ingresos_mensuales_usd"] > 1000:
+        # Cuentas en USD (Custodia en divisas)
+        prob_usd = 0.35
+        if c["ingresos_mensuales_usd"] > 1000 or c["tipo_documento"] == "J":
             prob_usd = 0.85
         elif c["ingresos_mensuales_usd"] < 200:
-            prob_usd = 0.10
+            prob_usd = 0.08
             
         if random.random() < prob_usd:
-            usd_type = "Corriente" # Cuentas en USD en Venezuela son corrientes sin chequeras generalmente
+            usd_type = "Corriente"
             usd_acct = f"0105{random.randint(1000, 9999)}{random.randint(10, 99)}{random.randint(1000000000, 9999999999)}"
-            init_bal_usd = random.uniform(10, 500) if c["ingresos_mensuales_usd"] > 500 else random.uniform(0, 100)
+            init_bal_usd = c["ingresos_mensuales_usd"] * random.uniform(0.15, 0.50)
             
             accounts.append({
                 "id": account_id,
@@ -408,18 +450,17 @@ def generate_accounts(clients):
     return accounts
 
 def generate_all_data(db_conn):
-    print("Iniciando generación de datos...")
+    print("Iniciando generación de datos calibrados...")
     
     # 1. Generar Macro
-    print("1/6 Generando indicadores macroeconómicos de Venezuela...")
+    print("1/6 Generando indicadores macroeconómicos reales de Venezuela...")
     macro_data = generate_macro_data()
     
     # 2. Generar Clientes y Cuentas
-    print("2/6 Generando perfiles de clientes y cuentas...")
+    print("2/6 Generando perfiles socioeconómicos de clientes y cuentas...")
     clients = generate_demographics(TOTAL_CLIENTS)
     accounts = generate_accounts(clients)
     
-    # Insertar Clientes y Cuentas en DB para poder referenciarlos
     cursor = db_conn.cursor()
     
     cursor.executemany("""
@@ -434,8 +475,7 @@ def generate_all_data(db_conn):
     
     db_conn.commit()
     
-    # Estructura en memoria para seguimiento rápido de saldos y cuentas activas
-    # Cuentas estructuradas: {id: {"cliente_id", "moneda", "saldo", "estado", "fecha_apertura"}}
+    # Estructura en memoria para balance y estados
     acct_map = {}
     acct_ids_ves = []
     acct_ids_usd = []
@@ -455,13 +495,25 @@ def generate_all_data(db_conn):
             
     clients_map = {c["id"]: c for c in clients}
     
+    # Asignación de facilidades de crédito / sobregiro autorizado:
+    # Empresas y clientes VIP (score >= 700 y bajo riesgo) cuentan con línea de sobregiro
+    credit_facilities_usd = {}
+    for c in clients:
+        cid = c["id"]
+        is_jur = c["cedula"].startswith("J")
+        if is_jur:
+            credit_facilities_usd[cid] = round(c["ingresos_mensuales_usd"] * 1.5, 2)
+        elif c["score_credito"] >= 700 and c["nivel_riesgo_interno"] == "Bajo":
+            credit_facilities_usd[cid] = round(c["ingresos_mensuales_usd"] * 0.75, 2)
+        else:
+            credit_facilities_usd[cid] = 0.0
+            
     # 3. Simulación diaria (Transacciones, Créditos, Liquidez)
-    print("3/6 Ejecutando simulación diaria (Junio 2023 - Junio 2026)...")
+    print("3/6 Ejecutando simulación diaria financieramente coherente (2023 - 2026)...")
     
     current_date = START_DATE
     delta = datetime.timedelta(days=1)
     
-    # Listas de acumuladores para inserción por lotes
     tx_batch = []
     loans_list = []
     loan_payments_list = []
@@ -472,22 +524,19 @@ def generate_all_data(db_conn):
     payment_id_counter = 1
     treasury_id_counter = 1
     
-    # Estructuras de créditos en memoria: {id: {"cliente_id", "monto", "cuotas_totales", "cuotas_pagadas", "saldo_pendiente", "estado", "dia_pago", "cuota_mensual"}}
     active_loans = {}
     
-    # Fallas operacionales del banco predefinidas en fechas específicas
-    # Formato: "YYYY-MM-DD" -> tasa de falla
+    # Fechas de fallas operacionales específicas
     outage_dates = {
         "2023-11-20": 0.42, # Caída enlace nacional CANTV
-        "2024-04-15": 0.35, # Incendio en Datacenter secundario
-        "2024-12-10": 0.50, # Sobrecarga del sistema por pagos navideños
+        "2024-04-15": 0.35, # Datacenter secundario
+        "2024-12-10": 0.48, # Sobrecarga por pagos navideños
         "2025-06-03": 0.30, # Falla de red transaccional
         "2025-12-24": 0.40, # Falla procesamiento tarjetas
-        "2026-03-12": 0.28  # Actualización fallida de Core Bancario
+        "2026-03-12": 0.28  # Mantenimiento Core Bancario
     }
     
-    # Estado inicial de liquidez de tesorería del banco
-    disponible_caja_ves = 20000000.0 # Bóveda inicial
+    disponible_caja_ves = 25000000.0
     
     while current_date <= END_DATE:
         date_str = current_date.strftime("%Y-%m-%d")
@@ -497,125 +546,156 @@ def generate_all_data(db_conn):
         
         day_of_month = current_date.day
         month = current_date.month
-        weekday = current_date.weekday() # 5: Sábado, 6: Domingo
+        weekday = current_date.weekday()
         
-        # Filtro de cuentas activas en esta fecha
         active_accts_ves = [aid for aid in acct_ids_ves if acct_map[aid]["fecha_apertura"] <= current_date and acct_map[aid]["estado"] == "Activa"]
         active_accts_usd = [aid for aid in acct_ids_usd if acct_map[aid]["fecha_apertura"] <= current_date and acct_map[aid]["estado"] == "Activa"]
         
-        # --- QUINCENAS: Depósitos de Salarios (15 y 30) ---
+        # --- FLUJOS DE ENTRADA REGULARES (Depósitos de Nómina, Honorarios, Ventas) ---
+        # 1. Quincenas (días 15 y 30): Empleados y Jubilados
         is_quincena = (day_of_month == 15) or (day_of_month == 30) or (month == 2 and day_of_month == 28)
         if is_quincena:
-            # Depositar salarios a empleados y pensionados
             for aid in active_accts_ves:
                 info = acct_map[aid]
                 c = clients_map[info["cliente_id"]]
                 if c["actividad_economica"] in ["Empleado Privado", "Empleado Público", "Jubilado"]:
-                    # Salario base en USD convertido a Bolívares usando la tasa BCV
-                    salary_usd = c["ingresos_mensuales_usd"] / 2.0 # Quincenal
+                    salary_usd = c["ingresos_mensuales_usd"] / 2.0
                     if c["actividad_economica"] == "Jubilado":
-                        salary_usd = c["ingresos_mensuales_usd"] # Pago único al mes
                         if day_of_month == 30: continue
-                        
+                        salary_usd = c["ingresos_mensuales_usd"]
                     salary_ves = salary_usd * bcv
                     info["saldo"] += salary_ves
-                    
-                    # Registrar transacción de nómina
                     tx_batch.append((
                         None, aid, "Deposito Taquilla", round(salary_ves, 2), round(salary_usd, 2), bcv,
                         f"{date_str} 08:30:00", "Taquilla", "Completada", None, 0, 10.48, -66.90, "SYSTEM"
                     ))
                     
-        # --- DETERMINAR VOLUMEN DIARIO DE TRANSACCIONES ---
-        # Base de transacciones diarias
-        tx_prob_ves = 0.22 # Tasa de transacción promedio por cuenta en VES
-        tx_prob_usd = 0.08 # Tasa en USD (menor frecuencia)
+        # 2. Independientes / Profesionales: cobros de honorarios semanales (días 7, 14, 21, 28)
+        if day_of_month in [7, 14, 21, 28]:
+            for aid in active_accts_ves:
+                info = acct_map[aid]
+                c = clients_map[info["cliente_id"]]
+                if c["actividad_economica"] == "Independiente/Profesional":
+                    fee_usd = (c["ingresos_mensuales_usd"] * 0.25) * random.uniform(0.85, 1.15)
+                    fee_ves = fee_usd * bcv
+                    info["saldo"] += fee_ves
+                    tx_batch.append((
+                        None, aid, "Transferencia", round(fee_ves, 2), round(fee_usd, 2), bcv,
+                        f"{date_str} 11:15:00", "Banca en Linea", "Completada", None, 0, 10.48, -66.90, "SYSTEM"
+                    ))
+                    
+        # 3. Empresarios / Comercios / Jurídicos: depósitos comerciales frecuentes (cada 3 días)
+        if day_of_month % 3 == 0:
+            for aid in active_accts_ves:
+                info = acct_map[aid]
+                c = clients_map[info["cliente_id"]]
+                if c["actividad_economica"] == "Empresario/Comerciante" or c["cedula"].startswith("J"):
+                    biz_usd = (c["ingresos_mensuales_usd"] * 0.10) * random.uniform(0.8, 1.3)
+                    biz_ves = biz_usd * bcv
+                    info["saldo"] += biz_ves
+                    tx_batch.append((
+                        None, aid, "Deposito Taquilla", round(biz_ves, 2), round(biz_usd, 2), bcv,
+                        f"{date_str} 16:45:00", "Taquilla", "Completada", None, 0, 10.48, -66.90, "SYSTEM"
+                    ))
+                    
+        # 4. Desempleados: remesas y ayudas familiares (días 10 y 24)
+        if day_of_month in [10, 24]:
+            for aid in active_accts_ves:
+                info = acct_map[aid]
+                c = clients_map[info["cliente_id"]]
+                if c["actividad_economica"] == "Desempleado":
+                    rem_usd = (c["ingresos_mensuales_usd"] * 0.50) * random.uniform(0.9, 1.1)
+                    rem_ves = rem_usd * bcv
+                    info["saldo"] += rem_ves
+                    tx_batch.append((
+                        None, aid, "Transferencia", round(rem_ves, 2), round(rem_usd, 2), bcv,
+                        f"{date_str} 14:20:00", "Banca Movil", "Completada", None, 0, 10.48, -66.90, "SYSTEM"
+                    ))
+
+        # --- TRANSACCIONES DIARIAS EN BOLÍVARES (VES) ---
+        outage_pct = outage_dates.get(date_str, 0.001)
         
-        # Ajustes de estacionalidad y ciclos de pago
-        multiplier = 1.0
-        if is_quincena:
-            multiplier *= 2.0
-        if month == 12:
-            multiplier *= 2.8 # Boom navideño en Venezuela
-        if weekday in [5, 6]:
-            multiplier *= 1.2 # Mayor gasto en fines de semana
-            
-        tx_prob_ves = min(0.95, tx_prob_ves * multiplier)
-        tx_prob_usd = min(0.40, tx_prob_usd * multiplier)
+        # Separar cuentas con liquidez vs cuentas con saldo bajo o agotado
+        pos_accts_ves = [aid for aid in active_accts_ves if acct_map[aid]["saldo"] > 0]
+        zero_accts_ves = [aid for aid in active_accts_ves if acct_map[aid]["saldo"] <= 0]
         
-        # Outage del día
-        outage_pct = outage_dates.get(date_str, 0.0)
+        tx_prob = 0.22
+        if is_quincena: tx_prob *= 1.4
+        if month == 12: tx_prob *= 1.6
+        if weekday in [5, 6]: tx_prob *= 1.15
         
-        # --- GENERAR TRANSACCIONES VES ---
-        # Seleccionar aleatoriamente cuentas que harán transacción hoy
-        num_tx_ves = int(len(active_accts_ves) * tx_prob_ves)
-        transacting_accts_ves = random.sample(active_accts_ves, k=num_tx_ves) if num_tx_ves < len(active_accts_ves) else active_accts_ves
+        # Cuentas con saldo tienen alta actividad natural
+        num_pos = int(len(pos_accts_ves) * min(0.60, tx_prob))
+        # Cuentas sin saldo transaccionan raramente (intentos accidentales o uso de sobregiro)
+        num_zero = int(len(zero_accts_ves) * 0.008)
         
-        for aid in transacting_accts_ves:
+        transacting_ves = random.sample(pos_accts_ves, k=min(num_pos, len(pos_accts_ves))) + random.sample(zero_accts_ves, k=min(num_zero, len(zero_accts_ves)))
+        random.shuffle(transacting_ves)
+        
+        for aid in transacting_ves:
             info = acct_map[aid]
             c = clients_map[info["cliente_id"]]
+            cid = c["id"]
             
-            # Decidir canal y tipo transaccion
-            # VES: Pago Movil (55%), Punto de Venta (30%), Transferencia (10%), ATM (3%), Taquilla (2%)
             rand = random.random()
             if rand < 0.55:
                 chan = "Pago Movil"
                 txtype = "Pago Movil"
+                amt_usd = random.uniform(1.5, 25.0)
             elif rand < 0.85:
                 chan = "Punto de Venta"
                 txtype = "Compra Punto Venta"
+                amt_usd = random.uniform(4.0, 60.0)
             elif rand < 0.95:
                 chan = "Banca Movil" if random.random() < 0.7 else "Banca en Linea"
                 txtype = "Transferencia"
+                max_tr = max(20.0, min(500.0, c["ingresos_mensuales_usd"] * 0.40))
+                amt_usd = random.uniform(15.0, max_tr)
             elif rand < 0.98:
                 chan = "ATM"
                 txtype = "Retiro ATM"
+                amt_usd = random.uniform(5.0, 35.0)
             else:
                 chan = "Taquilla"
-                txtype = "Retiro Taquilla" if random.random() < 0.5 else "Deposito Taquilla"
+                txtype = "Retiro Taquilla" if random.random() < 0.6 else "Deposito Taquilla"
+                amt_usd = random.uniform(30.0, 250.0)
                 
-            # Determinar Monto (en USD)
-            if txtype == "Compra Punto Venta":
-                amt_usd = random.lognormvariate(2.2, 0.8) # ~$10-$30
-            elif txtype == "Pago Movil":
-                amt_usd = random.lognormvariate(1.8, 0.6) # ~$6-$20
-            elif txtype == "Transferencia":
-                amt_usd = random.lognormvariate(4.0, 1.1) # ~$50-$200
-            elif txtype == "Retiro ATM":
-                amt_usd = random.uniform(5.0, 40.0)
-            else:
-                amt_usd = random.lognormvariate(4.5, 1.2) # Taquillas manejan montos altos
-                
-            amt_usd = max(1.0, min(15000.0, amt_usd))
+            amt_ves = amt_usd * bcv
             
             if txtype == "Deposito Taquilla":
-                amt_ves = amt_usd * bcv
                 info["saldo"] += amt_ves
                 status = "Completada"
                 err = None
             else:
-                # Egresos
-                amt_ves = amt_usd * bcv
+                # Egresos: evaluar saldo propio + línea de crédito / sobregiro disponible
+                credit_limit_usd = credit_facilities_usd.get(cid, 0.0)
+                # Si tiene un préstamo activo de consumo/comercial, cuenta con facilidad crediticia
+                has_active_loan = any(l["cliente_id"] == cid and l["estado"] == "Vigente" for l in active_loans.values())
+                if has_active_loan:
+                    credit_limit_usd = max(credit_limit_usd, c["ingresos_mensuales_usd"] * 0.6)
+                    
+                credit_limit_ves = credit_limit_usd * bcv
+                available_funds_ves = info["saldo"] + credit_limit_ves
                 
-                # Chequear saldo
-                if info["saldo"] < amt_ves:
+                if available_funds_ves >= amt_ves:
+                    # Fondo suficiente o cubierto por crédito
+                    if random.random() < outage_pct:
+                        status = "Fallida"
+                        err = random.choice(ERROR_CODES)
+                    else:
+                        status = "Completada"
+                        err = None
+                        info["saldo"] -= amt_ves
+                else:
+                    # Sin respaldo financiero ni crédito: Rechazo por fondos insuficientes
                     status = "Rechazada"
                     err = "ERR_FONDO_INSUFICIENTE"
-                elif random.random() < outage_pct:
-                    status = "Fallida"
-                    err = random.choice(ERROR_CODES)
-                else:
-                    info["saldo"] -= amt_ves
-                    status = "Completada"
-                    err = None
                     
-            # Simulación de fraude operativo en VES (0.15% probabilidad)
+            # Fraude operativo
             is_fraud = 0
             if status == "Completada" and txtype in ["Pago Movil", "Compra Punto Venta", "Transferencia"]:
-                # Condiciones para que un fraude sea realista para ML
-                # Más común en madrugadas, cuentas de personas con altos montos o ingresos
                 hour = random.randint(0, 23)
-                if hour in [1, 2, 3, 4] and amt_usd > (c["ingresos_mensuales_usd"] * 0.4) and random.random() < 0.08:
+                if hour in [1, 2, 3, 4] and amt_usd > (c["ingresos_mensuales_usd"] * 0.45) and random.random() < 0.07:
                     is_fraud = 1
             else:
                 hour = random.choice([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22])
@@ -624,12 +704,10 @@ def generate_all_data(db_conn):
             second = random.randint(0, 59)
             time_str = f"{date_str} {hour:02d}:{minute:02d}:{second:02d}"
             
-            # Coordenadas Caracas aproximadas + offset por fraude
             lat = 10.4806 + random.uniform(-0.15, 0.15)
             lon = -66.9036 + random.uniform(-0.15, 0.15)
             if is_fraud:
-                # Localizaciones inusuales (Maracaibo, San Cristóbal o fuera de rango)
-                lat += random.choice([-2.0, 3.5, 1.2])
+                lat += random.choice([-2.5, 3.5, 1.2])
                 lon += random.choice([-4.0, 2.8, -1.5])
                 
             dev_id = f"DEV_{hash(c['cedula']) % 1000000:06d}" if not is_fraud else f"DEV_{random.randint(100000, 999999):06d}"
@@ -639,44 +717,44 @@ def generate_all_data(db_conn):
                 time_str, chan, status, err, is_fraud, round(lat, 4), round(lon, 4), dev_id
             ))
             
-        # --- GENERAR TRANSACCIONES USD ---
-        num_tx_usd = int(len(active_accts_usd) * tx_prob_usd)
-        transacting_accts_usd = random.sample(active_accts_usd, k=num_tx_usd) if num_tx_usd < len(active_accts_usd) else active_accts_usd
+        # --- TRANSACCIONES DIARIAS EN DÓLARES (USD) ---
+        num_tx_usd = int(len(active_accts_usd) * 0.06)
+        transacting_usd = random.sample(active_accts_usd, k=num_tx_usd) if num_tx_usd < len(active_accts_usd) else active_accts_usd
         
-        for aid in transacting_accts_usd:
+        for aid in transacting_usd:
             info = acct_map[aid]
             c = clients_map[info["cliente_id"]]
             
-            # Tipo transaccion USD: Transferencia (70%), Deposito Taquilla (15%), Retiro Taquilla (15%)
             rand = random.random()
             if rand < 0.70:
                 chan = "Banca en Linea"
                 txtype = "Transferencia"
+                amt_usd = random.uniform(20.0, min(600.0, c["ingresos_mensuales_usd"] * 0.50))
             elif rand < 0.85:
                 chan = "Taquilla"
                 txtype = "Deposito Taquilla"
+                amt_usd = random.uniform(50.0, 400.0)
             else:
                 chan = "Taquilla"
                 txtype = "Retiro Taquilla"
+                amt_usd = random.uniform(30.0, 300.0)
                 
-            amt_usd = random.lognormvariate(3.8, 1.2) # ~$40-$300
-            amt_usd = max(5.0, min(10000.0, amt_usd))
-            
             if txtype == "Deposito Taquilla":
                 info["saldo"] += amt_usd
                 status = "Completada"
                 err = None
             else:
-                if info["saldo"] < amt_usd:
+                if info["saldo"] >= amt_usd:
+                    if random.random() < outage_pct:
+                        status = "Fallida"
+                        err = random.choice(ERROR_CODES)
+                    else:
+                        info["saldo"] -= amt_usd
+                        status = "Completada"
+                        err = None
+                else:
                     status = "Rechazada"
                     err = "ERR_FONDO_INSUFICIENTE"
-                elif random.random() < outage_pct:
-                    status = "Fallida"
-                    err = random.choice(ERROR_CODES)
-                else:
-                    info["saldo"] -= amt_usd
-                    status = "Completada"
-                    err = None
                     
             hour = random.randint(8, 18)
             time_str = f"{date_str} {hour:02d}:{random.randint(0,59):02d}:{random.randint(0,59):02d}"
@@ -689,102 +767,91 @@ def generate_all_data(db_conn):
                 time_str, chan, status, err, 0, round(lat, 4), round(lon, 4), dev_id
             ))
             
-        # --- RIESGO DE CRÉDITO: Otorgamiento de Préstamos ---
-        # Los créditos se otorgan a clientes con Score > 580 y estado Activo.
-        # Probabilidad pequeña cada día para mantener cartera controlada
-        if random.random() < 0.04:
+        # --- CARTERA DE CRÉDITO: Otorgamiento Calibrado (~1,000 préstamos en 3 años) ---
+        # En días hábiles bancarios se aprueban entre 1 y 2 préstamos para clientes elegibles
+        if weekday < 5 and random.random() < 0.90:
+            num_new_loans = 1 if random.random() < 0.70 else 2
             eligible_clients = [c for c in clients if c["estado_cliente"] == "Activo" and c["score_credito"] > 580 and c["fecha_registro"] <= date_str]
-            if eligible_clients:
-                c = random.choice(eligible_clients)
-                # Verificar si ya tiene crédito vigente
-                already_has_loan = any(l["cliente_id"] == c["id"] and l["estado"] in ["Vigente", "Vencido"] for l in active_loans.values())
-                
-                if not already_has_loan:
-                    # Monto aprobado: según sus ingresos, entre 3 y 8 meses de salario
-                    loan_amt_usd = round(c["ingresos_mensuales_usd"] * random.uniform(3.0, 8.0), 2)
-                    loan_amt_usd = max(500.0, min(30000.0, loan_amt_usd))
-                    
-                    plazo = random.choice([12, 18, 24, 36])
-                    tasa = round(macro["activa"] + random.uniform(-3.0, 3.0), 2) # Tasa indexada o fija
-                    
-                    fecha_ven = current_date + datetime.timedelta(days=plazo*30)
-                    tipo_c = random.choice(["Consumo", "Comercial", "Microcredito"])
-                    if loan_amt_usd > 10000:
-                        tipo_c = "Comercial"
+            
+            for _ in range(num_new_loans):
+                if eligible_clients:
+                    c = random.choice(eligible_clients)
+                    already_has_loan = any(l["cliente_id"] == c["id"] and l["estado"] in ["Vigente", "Vencido"] for l in active_loans.values())
+                    if not already_has_loan:
+                        plazo = random.choice([12, 18, 24, 36])
+                        loan_amt_usd = round(c["ingresos_mensuales_usd"] * random.uniform(2.5, 6.0), 2)
+                        loan_amt_usd = max(500.0, min(25000.0, loan_amt_usd))
                         
-                    # Cuota mensual estimada (amortización básica con interés francés)
-                    rate_m = (tasa / 100) / 12
-                    cuota_mensual = (loan_amt_usd * rate_m) / (1 - (1 + rate_m)**(-plazo))
-                    
-                    new_loan = {
-                        "id": loan_id_counter,
-                        "cliente_id": c["id"],
-                        "monto_aprobado_usd": loan_amt_usd,
-                        "tasa_interes_anual": tasa,
-                        "plazo_meses": plazo,
-                        "fecha_otorgamiento": date_str,
-                        "fecha_vencimiento": fecha_ven.strftime("%Y-%m-%d"),
-                        "tipo_credito": tipo_c,
-                        "estado": "Vigente",
-                        "saldo_pendiente_usd": loan_amt_usd,
-                        "cuotas_totales": plazo,
-                        "cuotas_pagadas": 0,
-                        "dia_pago": day_of_month,
-                        "cuota_mensual": cuota_mensual
-                    }
-                    loans_list.append(new_loan)
-                    active_loans[loan_id_counter] = new_loan
-                    loan_id_counter += 1
-                    
-                    # Depositar el crédito en la cuenta en dólares (o VES equivalente) del cliente
-                    c_accts = [aid for aid, ac in acct_map.items() if ac["cliente_id"] == c["id"]]
-                    usd_acct = [aid for aid in c_accts if acct_map[aid]["moneda"] == "USD"]
-                    
-                    if usd_acct:
-                        ac_id = usd_acct[0]
-                        acct_map[ac_id]["saldo"] += loan_amt_usd
-                        tx_batch.append((
-                            None, ac_id, "Deposito Taquilla", loan_amt_usd, loan_amt_usd, bcv,
-                            f"{date_str} 10:00:00", "Taquilla", "Completada", None, 0, 10.48, -66.90, "SYSTEM"
-                        ))
-                    else:
-                        ac_id = [aid for aid in c_accts if acct_map[aid]["moneda"] == "VES"][0]
-                        amt_ves = loan_amt_usd * bcv
-                        acct_map[ac_id]["saldo"] += amt_ves
-                        tx_batch.append((
-                            None, ac_id, "Deposito Taquilla", round(amt_ves, 2), loan_amt_usd, bcv,
-                            f"{date_str} 10:00:00", "Taquilla", "Completada", None, 0, 10.48, -66.90, "SYSTEM"
-                        ))
+                        tasa = round(macro["activa"] + random.uniform(-2.5, 2.5), 2)
+                        fecha_ven = current_date + datetime.timedelta(days=plazo*30)
+                        tipo_c = random.choice(["Consumo", "Comercial", "Microcredito"])
+                        if loan_amt_usd > 8000 or c["cedula"].startswith("J"):
+                            tipo_c = "Comercial"
+                            
+                        rate_m = (tasa / 100) / 12
+                        cuota_mensual = (loan_amt_usd * rate_m) / (1 - (1 + rate_m)**(-plazo))
                         
-        # --- RIESGO DE CRÉDITO: Cobro Mensual de Cuotas ---
-        # Ocurre cada mes. Vamos a chequear créditos que deban pagar hoy (según su dia_pago)
+                        new_loan = {
+                            "id": loan_id_counter,
+                            "cliente_id": c["id"],
+                            "monto_aprobado_usd": loan_amt_usd,
+                            "tasa_interes_anual": tasa,
+                            "plazo_meses": plazo,
+                            "fecha_otorgamiento": date_str,
+                            "fecha_vencimiento": fecha_ven.strftime("%Y-%m-%d"),
+                            "tipo_credito": tipo_c,
+                            "estado": "Vigente",
+                            "saldo_pendiente_usd": loan_amt_usd,
+                            "cuotas_totales": plazo,
+                            "cuotas_pagadas": 0,
+                            "dia_pago": day_of_month,
+                            "cuota_mensual": cuota_mensual
+                        }
+                        loans_list.append(new_loan)
+                        active_loans[loan_id_counter] = new_loan
+                        loan_id_counter += 1
+                        
+                        # Desembolso del crédito
+                        c_accts = [aid for aid, ac in acct_map.items() if ac["cliente_id"] == c["id"]]
+                        usd_acct = [aid for aid in c_accts if acct_map[aid]["moneda"] == "USD"]
+                        if usd_acct:
+                            ac_id = usd_acct[0]
+                            acct_map[ac_id]["saldo"] += loan_amt_usd
+                            tx_batch.append((
+                                None, ac_id, "Deposito Taquilla", loan_amt_usd, loan_amt_usd, bcv,
+                                f"{date_str} 10:00:00", "Taquilla", "Completada", None, 0, 10.48, -66.90, "SYSTEM"
+                            ))
+                        else:
+                            ac_id = [aid for aid in c_accts if acct_map[aid]["moneda"] == "VES"][0]
+                            amt_ves = loan_amt_usd * bcv
+                            acct_map[ac_id]["saldo"] += amt_ves
+                            tx_batch.append((
+                                None, ac_id, "Deposito Taquilla", round(amt_ves, 2), loan_amt_usd, bcv,
+                                f"{date_str} 10:00:00", "Taquilla", "Completada", None, 0, 10.48, -66.90, "SYSTEM"
+                            ))
+                            
+        # --- CARTERA DE CRÉDITO: Cobro Mensual e Historial de Pagos ---
         loans_to_pay = [l for l in active_loans.values() if l["estado"] in ["Vigente", "Vencido"] and l["dia_pago"] == day_of_month]
         for l in loans_to_pay:
             c = clients_map[l["cliente_id"]]
             c_accts = [aid for aid, ac in acct_map.items() if ac["cliente_id"] == c["id"]]
             
-            # Preferencia de cobro en USD, luego en VES
             usd_acct = [aid for aid in c_accts if acct_map[aid]["moneda"] == "USD" and acct_map[aid]["estado"] == "Activa"]
             ves_acct = [aid for aid in c_accts if acct_map[aid]["moneda"] == "VES" and acct_map[aid]["estado"] == "Activa"]
-            
             payment_amount = l["cuota_mensual"]
-            paid = False
             
-            # Probabilidad de default aumenta si la inflación mensual actual es alta
-            # o si el score es bajo
-            macro_inf_factor = max(1.0, macro["inflacion"] / 3.0) # Si inflación > 3%, aumenta riesgo
-            default_prob = 0.05 * macro_inf_factor
+            # Estrés macroeconómico: inflación alta y salto del paralelo elevan probabilidad de impago
+            macro_strain = max(1.0, (macro["inflacion"] / 2.5) * (macro["paralela"] / macro["bcv"]))
+            default_prob = 0.035 * macro_strain
             if c["score_credito"] < 500:
-                default_prob += 0.20
+                default_prob += 0.18
             elif c["score_credito"] < 600:
-                default_prob += 0.08
+                default_prob += 0.06
                 
-            # Si el cliente decide no pagar (default probabilístico) o no tiene fondos
             has_funds_usd = usd_acct and acct_map[usd_acct[0]]["saldo"] >= payment_amount
             has_funds_ves = ves_acct and acct_map[ves_acct[0]]["saldo"] >= (payment_amount * bcv)
             
             if random.random() > default_prob and (has_funds_usd or has_funds_ves):
-                # Pagar cuota
                 if has_funds_usd:
                     ac_id = usd_acct[0]
                     acct_map[ac_id]["saldo"] -= payment_amount
@@ -800,15 +867,14 @@ def generate_all_data(db_conn):
                         None, ac_id, "Transferencia", round(amt_ves, 2), payment_amount, bcv,
                         f"{date_str} 09:00:00", "Banca Movil", "Completada", None, 0, 10.48, -66.90, "SYSTEM"
                     ))
-                
+                    
                 l["cuotas_pagadas"] += 1
                 l["saldo_pendiente_usd"] = max(0.0, l["monto_aprobado_usd"] - (l["cuotas_pagadas"] * (l["monto_aprobado_usd"] / l["cuotas_totales"])))
                 
-                # Guardar pago
                 loan_payments_list.append({
                     "id": payment_id_counter,
                     "credito_id": l["id"],
-                    "monto_pago_usd": payment_amount,
+                    "monto_pago_usd": round(payment_amount, 2),
                     "fecha_pago": date_str,
                     "dias_atraso": 0,
                     "estado_pago": "A Tiempo"
@@ -818,14 +884,11 @@ def generate_all_data(db_conn):
                 if l["cuotas_pagadas"] >= l["cuotas_totales"]:
                     l["estado"] = "Pagado"
             else:
-                # No se pagó la cuota (Atraso)
-                # Incrementar días de atraso
-                latre = random.randint(15, 45) if random.random() < 0.6 else random.randint(46, 120)
-                
-                l["saldo_pendiente_usd"] += payment_amount * 0.05 # Recargo por mora 5%
+                latre = random.randint(10, 40) if random.random() < 0.65 else random.randint(45, 110)
+                l["saldo_pendiente_usd"] += payment_amount * 0.03
                 
                 if latre > 90:
-                    l["estado"] = "Vencido" if random.random() < 0.7 else "En Litigio"
+                    l["estado"] = "Vencido" if random.random() < 0.70 else "En Litigio"
                     
                 loan_payments_list.append({
                     "id": payment_id_counter,
@@ -837,58 +900,45 @@ def generate_all_data(db_conn):
                 })
                 payment_id_counter += 1
                 
-        # --- RIESGO DE LIQUIDEZ Y MERCADO (Balances y Tesorería) ---
-        # Calcular agregados de depósitos y créditos del día
+        # --- RIESGO DE LIQUIDEZ Y TESORERÍA ---
         total_dep_ves = sum(acct_map[aid]["saldo"] for aid in active_accts_ves)
         total_dep_usd = sum(acct_map[aid]["saldo"] for aid in active_accts_usd)
-        
         total_cred_usd = sum(l["saldo_pendiente_usd"] for l in active_loans.values() if l["estado"] in ["Vigente", "Vencido"])
-        total_cred_ves = total_cred_usd * bcv # En Venezuela la cartera de créditos suele estar indexada al tipo de cambio
+        total_cred_ves = total_cred_usd * bcv
         
-        # Requerimiento de Encaje Legal: 73% sobre depósitos en VES
+        # Encaje Legal BCV: 73% sobre depósitos en VES
         encaje_bcv_ves = total_dep_ves * 0.73
         
-        # Disponible en caja (Banco): fluctúa según las transacciones completadas
-        # Simular depósitos/retiros netos diarios
+        # Flujo neto en caja
         net_flow_usd = sum(tx[4] if tx[2] == "Deposito Taquilla" else -tx[4] for tx in tx_batch if tx[6].startswith(date_str))
-        
         disponible_caja_ves += (net_flow_usd * bcv)
-        disponible_caja_ves = max(total_dep_ves * 0.05, disponible_caja_ves) # Caja mínima de seguridad (5%)
+        disponible_caja_ves = max(total_dep_ves * 0.05, disponible_caja_ves)
         
-        # Calcular Tasa de Liquidez = Activos Líquidos (Caja + Disponible) / Depósitos Totales
-        tasa_liq = (disponible_caja_ves) / (total_dep_ves + 1.0)
-        
-        # Si la caja está por debajo del encaje legal o caja mínima, el banco pide préstamo interbancario (Riesgo de liquidez)
+        tasa_liq = disponible_caja_ves / (total_dep_ves + 1.0)
         brecha_liq_usd = (disponible_caja_ves - encaje_bcv_ves) / bcv
         
         if brecha_liq_usd < 0:
-            # Deficit de liquidez: el banco debe fondearse
-            borrow_amt_usd = abs(brecha_liq_usd) * 1.1
+            borrow_amt_usd = abs(brecha_liq_usd) * 1.10
             disponible_caja_ves += (borrow_amt_usd * bcv)
-            
-            # Registrar operación de tesorería
             treasury_ops_list.append({
                 "id": treasury_id_counter,
                 "fecha": date_str,
-                "tipo_operacion": "Colocacion Interbancaria", # Recibida (Préstamo interbancario)
+                "tipo_operacion": "Colocacion Interbancaria",
                 "monto_usd": round(borrow_amt_usd, 2),
-                "tasa_anual": round(macro["activa"] * 0.9, 2), # Tasa interbancaria levemente menor a activa comercial
-                "plazo_dias": 1, # Overnight
+                "tasa_anual": round(macro["activa"] * 0.90, 2),
+                "plazo_dias": 1,
                 "contraparte": random.choice(["Banco de Venezuela", "Banesco", "Banco Provincial"])
             })
             treasury_id_counter += 1
-        elif brecha_liq_usd > (total_dep_usd * 0.20):
-            # Exceso de liquidez: el banco coloca dinero o compra divisas
-            invest_amt_usd = brecha_liq_usd * 0.5
+        elif brecha_liq_usd > (total_dep_usd * 0.18):
+            invest_amt_usd = brecha_liq_usd * 0.45
             disponible_caja_ves -= (invest_amt_usd * bcv)
-            
-            # Inversión de tesorería
             treasury_ops_list.append({
                 "id": treasury_id_counter,
                 "fecha": date_str,
-                "tipo_operacion": "Compra Divisas BCV" if random.random() < 0.5 else "Inversion Corto Plazo",
+                "tipo_operacion": "Compra Divisas BCV" if random.random() < 0.6 else "Inversion Corto Plazo",
                 "monto_usd": round(invest_amt_usd, 2),
-                "tasa_anual": round(macro["pasiva"] * 1.2, 2),
+                "tasa_anual": round(macro["pasiva"] * 1.25, 2),
                 "plazo_dias": random.choice([7, 14, 28]),
                 "contraparte": "Banco Central de Venezuela" if random.random() < 0.6 else "Bolsa de Valores de Caracas"
             })
@@ -906,8 +956,7 @@ def generate_all_data(db_conn):
             "brecha_liquidez_usd": round(brecha_liq_usd, 2)
         })
         
-        # --- VOLCAR TRANSACCIONES A DB POR LOTES ---
-        # Escribir transacciones cada 50,000 registros para evitar consumo excesivo de RAM
+        # Volcar transacciones a SQLite por lotes de 50,000 para optimizar memoria RAM
         if len(tx_batch) >= 50000:
             cursor.executemany("""
             INSERT INTO transacciones (id, cuenta_id, tipo_transaccion, monto, monto_usd, tasa_cambio, fecha_hora, canal, estado, codigo_error, es_fraude, latitud, longitud, dispositivo_id)
@@ -916,10 +965,8 @@ def generate_all_data(db_conn):
             db_conn.commit()
             tx_batch = []
             
-        # Incrementar día
         current_date += delta
         
-    # Guardar transacciones restantes
     if tx_batch:
         cursor.executemany("""
         INSERT INTO transacciones (id, cuenta_id, tipo_transaccion, monto, monto_usd, tasa_cambio, fecha_hora, canal, estado, codigo_error, es_fraude, latitud, longitud, dispositivo_id)
@@ -927,7 +974,7 @@ def generate_all_data(db_conn):
         """, tx_batch)
         db_conn.commit()
         
-    # 4. Insertar Créditos y Pagos restantes en DB
+    # 4. Insertar Créditos y Pagos
     print("4/6 Guardando cartera de créditos e historial de pagos...")
     cursor.executemany("""
     INSERT INTO creditos (id, cliente_id, monto_aprobado_usd, tasa_interes_anual, plazo_meses, fecha_otorgamiento, fecha_vencimiento, tipo_credito, estado, saldo_pendiente_usd, cuotas_totales, cuotas_pagadas)
@@ -941,15 +988,14 @@ def generate_all_data(db_conn):
     
     db_conn.commit()
     
-    # Actualizar saldos finales de las cuentas en DB
+    # 5. Actualizar saldos finales de las cuentas
     print("5/6 Actualizando balances finales de cuentas...")
     final_saldos = [(v["saldo"], k) for k, v in acct_map.items()]
     cursor.executemany("UPDATE cuentas SET saldo_actual = ? WHERE id = ?", final_saldos)
     db_conn.commit()
     
-    # 5. Insertar Indicadores Macro y Resúmenes Diarios
+    # 6. Insertar Indicadores Macro y Resúmenes Diarios
     print("6/6 Insertando series macroeconómicas y balances de tesorería...")
-    
     macro_records_list = []
     for k, v in macro_data.items():
         macro_records_list.append({
@@ -980,7 +1026,6 @@ def generate_all_data(db_conn):
     db_conn.commit()
     print("Datos insertados exitosamente.")
 
-# Generación del archivo backup SQL para PostgreSQL
 def generate_postgres_sql(db_conn):
     print("Generando backup SQL compatible con PostgreSQL...")
     os.makedirs(os.path.dirname(SQL_BACKUP_FILE), exist_ok=True)
@@ -989,7 +1034,6 @@ def generate_postgres_sql(db_conn):
         f.write("-- REPOSITORIO DE BASE DE DATOS BANCARIA VENEZUELA\n")
         f.write("-- Copia de respaldo compatible con PostgreSQL para modelos de Machine Learning\n\n")
         
-        # Escribir DDL
         f.write("""
 DROP TABLE IF EXISTS transacciones;
 DROP TABLE IF EXISTS cuentas;
@@ -1116,7 +1160,6 @@ CREATE INDEX idx_creditos_cliente ON creditos(cliente_id);
 CREATE INDEX idx_pagos_credito ON pagos_creditos(credito_id);
 \n""")
         
-        # Volcar datos
         tables = ["indicadores_macro", "clientes", "cuentas", "creditos", "pagos_creditos", "resumen_liquidez_diario", "operaciones_tesoreria", "transacciones"]
         sqlite_cursor = db_conn.cursor()
         
@@ -1125,14 +1168,12 @@ CREATE INDEX idx_pagos_credito ON pagos_creditos(credito_id);
             sqlite_cursor.execute(f"SELECT * FROM {table}")
             rows = sqlite_cursor.fetchall()
             
-            # Obtener nombres de columnas
             sqlite_cursor.execute(f"PRAGMA table_info({table})")
             columns = [c[1] for c in sqlite_cursor.fetchall()]
             cols_str = ", ".join(columns)
             
             f.write(f"\n-- Datos para la tabla {table}\n")
             
-            # Insertar en lotes de 1000 enunciados
             chunk_size = 1000
             for k in range(0, len(rows), chunk_size):
                 chunk = rows[k:k+chunk_size]
@@ -1145,7 +1186,6 @@ CREATE INDEX idx_pagos_credito ON pagos_creditos(credito_id);
                         if val is None:
                             row_vals.append("NULL")
                         elif isinstance(val, str):
-                            # Escapar comillas
                             escaped = val.replace("'", "''")
                             row_vals.append(f"'{escaped}'")
                         else:
@@ -1154,7 +1194,6 @@ CREATE INDEX idx_pagos_credito ON pagos_creditos(credito_id);
                 
                 f.write(",\n".join(values_list) + ";\n")
                 
-        # Reiniciar las secuencias serial de PostgreSQL
         f.write("\n-- Ajustar secuencias serial\n")
         f.write("SELECT setval('clientes_id_seq', COALESCE((SELECT MAX(id)+1 FROM clientes), 1), false);\n")
         f.write("SELECT setval('cuentas_id_seq', COALESCE((SELECT MAX(id)+1 FROM cuentas), 1), false);\n")
@@ -1176,7 +1215,7 @@ def main():
         init_db(conn)
         generate_all_data(conn)
         generate_postgres_sql(conn)
-        print("¡Proceso de generación completado!")
+        print("¡Proceso de generación completado con éxito!")
     except Exception as e:
         print(f"Error durante la generación: {e}")
         import traceback
