@@ -77,13 +77,14 @@ try:
                 df[col] = df[col].astype(str)
         
         print(f"[+] Uploading {len(df)} rows to Snowflake table '{table.upper()}'...")
-        # write_pandas automatically creates the table if it does not exist
-        # write_pandas crea la tabla automáticamente si no existe (auto_create_table=True)
+        # write_pandas automatically creates the table if it does not exist and overwrites existing data
+        # write_pandas crea la tabla automáticamente si no existe y sobrescribe datos existentes
         success, nchunks, nrows, _ = write_pandas(
             conn=sf_conn,
             df=df,
             table_name=table.upper(),
-            auto_create_table=True
+            auto_create_table=True,
+            overwrite=True
         )
         print(f"[✓] Successfully loaded {nrows} rows into Snowflake!")
 
