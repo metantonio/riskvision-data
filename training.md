@@ -1,9 +1,9 @@
 # RiskVision: Machine Learning Model Training & Deployment Guide
 ### Guía de Entrenamiento y Despliegue de Modelos de Machine Learning
 
-This document provides a comprehensive guide in both **English** and **Spanish** on how to train, evaluate, and deploy the machine learning models required to answer the advanced questions in [`questions.md`](file:///c:/Repositorios/bank-data/questions.md).
+This document provides a comprehensive guide in both **English** and **Spanish** on how to train, evaluate, and deploy the machine learning models required to answer the advanced questions in [`questions.md`](./questions.md).
 
-Este documento proporciona una guía exhaustiva tanto en **inglés** como en **español** sobre cómo entrenar, evaluar y desplegar los modelos de machine learning requeridos para resolver las preguntas avanzadas de [`questions.md`](file:///c:/Repositorios/bank-data/questions.md).
+Este documento proporciona una guía exhaustiva tanto en **inglés** como en **español** sobre cómo entrenar, evaluar y desplegar los modelos de machine learning requeridos para resolver las preguntas avanzadas de [`questions.md`](.questions.md).
 
 ---
 
@@ -13,10 +13,10 @@ The machine learning suite addresses the primary risk dimensions of modern retai
 
 | Model / Modelo | Target Variable / Variable Objetivo | Type / Tipo | Script | Associated Question / Pregunta Asociada | Key Metric / Métrica Clave |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Credit Scoring (PD)** | `target_default` (0: Performing, 1: Default) | Binary Classification | [`models/train_credit_scoring.py`](file:///c:/Repositorios/bank-data/models/train_credit_scoring.py) | **Q4.1** (Credit Default Risk) | Gini Index, ROC-AUC, Brier Score |
-| **Fraud Detection** | `es_fraude` (0: Legit, 1: Fraud) | Imbalanced Classification | [`models/train_fraud_detection.py`](file:///c:/Repositorios/bank-data/models/train_fraud_detection.py) | **Q4.2** (Transactional Anomaly) | PR-AUC (AUPRC), F1-Score, Recall |
-| **Liquidity Forecasting**| `brecha_liquidez_usd` (Surplus / Deficit) | Time-Series Regression | [`models/train_liquidity_forecasting.py`](file:///c:/Repositorios/bank-data/models/train_liquidity_forecasting.py) | **Q4.3** (Liquidity Gap & Encaje) | MAE, RMSE, $R^2$ Score |
-| **Customer Churn** | `target_churn` (0: Active, 1: Inactive) | Binary Classification | [`models/train_customer_churn.py`](file:///c:/Repositorios/bank-data/models/train_customer_churn.py) | **Q5.4 & Q1.1** (Retention Risk) | ROC-AUC, Recall |
+| **Credit Scoring (PD)** | `target_default` (0: Performing, 1: Default) | Binary Classification | [`models/train_credit_scoring.py`](./models/train_credit_scoring.py) | **Q4.1** (Credit Default Risk) | Gini Index, ROC-AUC, Brier Score |
+| **Fraud Detection** | `es_fraude` (0: Legit, 1: Fraud) | Imbalanced Classification | [`models/train_fraud_detection.py`](./models/train_fraud_detection.py) | **Q4.2** (Transactional Anomaly) | PR-AUC (AUPRC), F1-Score, Recall |
+| **Liquidity Forecasting**| `brecha_liquidez_usd` (Surplus / Deficit) | Time-Series Regression | [`models/train_liquidity_forecasting.py`](./models/train_liquidity_forecasting.py) | **Q4.3** (Liquidity Gap & Encaje) | MAE, RMSE, $R^2$ Score |
+| **Customer Churn** | `target_churn` (0: Active, 1: Inactive) | Binary Classification | [`models/train_customer_churn.py`](./models/train_customer_churn.py) | **Q5.4 & Q1.1** (Retention Risk) | ROC-AUC, Recall |
 
 ---
 
@@ -139,7 +139,7 @@ The machine learning suite addresses the primary risk dimensions of modern retai
 
 ## 6. How to Train and Run the Models / Cómo Entrenar y Ejecutar los Modelos
 
-Each model is encapsulated in a standalone, production-ready Python script inside the [`models/`](file:///c:/Repositorios/bank-data/models) folder:
+Each model is encapsulated in a standalone, production-ready Python script inside the [`models/`](./models) folder:
 
 ### Execution Commands / Comandos de Ejecución
 
